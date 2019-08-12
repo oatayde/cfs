@@ -1,0 +1,461 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Generic USOHEMPCTXA901 windows instance deployment template with root and optional D Drive encrypted",
+    "Parameters": {
+        "Instanceprofile": {
+            "Description": "Please specify your application InstanceProfile",
+            "Type": "String",
+            "AllowedPattern": "[-a-zA-Z0-9/_]+",
+            "MinLength": 1,
+            "ConstraintDescription": "Required parameter",
+            "Default": "baxaws-dev-emp-instance-role"
+        },
+        "powerOn": {
+            "Description": "The UTC time to start your instance, na for not applicable",
+            "Type": "String",
+            "MinLength": "1",
+            "Default": "na",
+            "ConstraintDescription": "must specify starting time in UTC."
+        },
+        "powerOff": {
+            "Description": "The UTC time to stop your instance, na for not applicable",
+            "Type": "String",
+            "MinLength": "1",
+            "Default": "na",
+            "ConstraintDescription": "must specify stopping time in UTC."
+        },
+        "Backup": {
+            "Description": "Set true/false if AMI backups is required",
+            "Type": "String",
+            "Default": true,
+            "AllowedValues": [
+                true,
+                false
+            ]
+        },
+        "uptimeDays": {
+            "Description": "Input days when the instance is online",
+            "Type": "String",
+            "Default": "SUN;MON;TUE;WED;THU;FRI;SAT"
+        },
+        "OSVersion": {
+            "Description": "Baxter Windows AMI Latest Version",
+            "Type": "AWS::SSM::Parameter::Value<String>",
+            "Default": "/BAX/AMI/LATEST/WINDOWS2016",
+            "AllowedValues": [
+                "/BAX/AMI/LATEST/WINDOWS2008R2",
+                "/BAX/AMI/LATEST/WINDOWS2012R2",
+                "/BAX/AMI/LATEST/WINDOWS2016"
+            ]
+        },
+        "ServerType": {
+            "Description": "Server instance type",
+            "Type": "String",
+            "Default": "m5.large",
+            "AllowedValues": [
+                "t3.micro",
+                "t3.medium",
+                "t3.large",
+                "t3.xlarge",
+                "t3.2xlarge",
+                "m4.large",
+                "m4.xlarge",
+                "m4.2xlarge",
+                "m5.large",
+                "m5.xlarge",
+                "m5.2xlarge"
+            ]
+        },
+        "ServerTenancy": {
+            "Description": "Server instance tenancy, for MSDN products, dedicated is required.",
+            "Type": "String",
+            "Default": "default",
+            "AllowedValues": [
+                "default",
+                "dedicated"
+            ]
+        },
+        "ServerName": {
+            "Description": "Instance hostname: [ap/us/de/][sg/oh/fr][xxx][Env#], for example: usohebp900",
+            "Type": "String",
+            "MinLength": 1,
+            "MaxLength": 15,
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "ConstraintDescription": "any alphabetic string and/or number characters length <=15"
+        },
+        "ServerSubnetID": {
+            "Description": "Subnet ID where to deploy the instance",
+            "Type": "AWS::EC2::Subnet::Id"
+        },
+        "SecurityGroupsID": {
+            "Type": "List<AWS::EC2::SecurityGroup::Id>",
+            "Description": "List of Security Groups to add to EC2 instance"
+        },
+        "CVolumeDeleteOnTermination": {
+            "Description": "Select true/false if C Volume will be deleted when EC2 is terminated.",
+            "Type": "String",
+            "Default": true,
+            "AllowedValues": [
+                true,
+                false
+            ]
+        },
+        "CVolumeSize": {
+            "Description": "Set C Drive Size, minimal size is 100 GB",
+            "Type": "Number",
+            "Default": 100,
+            "MinValue": 100,
+            "MaxValue": 300
+        },
+        "DVolumeSize": {
+            "Description": "Set D Drive Size, if Size is 0, then no D drive will be provisioned.",
+            "Type": "Number",
+            "Default": 50,
+            "ConstraintDescription": "must specify a number."
+        },
+        "KmsKeyId": {
+            "Description": "Copy/paste your 36 characters long application specific encryption key ID from IAM/Encryption Key",
+            "Type": "String",
+            "MinLength": 36,
+            "MaxLength": 36,
+            "AllowedPattern": "[a-z0-9-]*"
+        },
+        "Costcenter": {
+            "Description": "Update the Cost centre as per bussiness unit",
+            "Type": "String",
+            "MinLength": 5,
+            "MaxLength": 20,
+            "AllowedPattern": "[a-z0-9-]*"
+        },
+        "Appname": {
+            "Description": "Update the Appname as per OU stucture in Domain",
+            "Type": "String",
+            "MinLength": 2,
+            "MaxLength": 25,
+            "AllowedPattern": "[a-z0-9@_.-]*"
+        },
+        "Owner": {
+            "Description": "Update the App owner Email details",
+            "Type": "String",
+            "MinLength": 5,
+            "MaxLength": 100,
+            "AllowedPattern": "[a-z0-9@_.-]*"
+        },
+        "Env": {
+            "Description": "Choose Environment based on the Account",
+            "Type": "String",
+            "Default": "prod",
+            "AllowedValues": [
+                "dev",
+                "test",
+                "prod"
+            ]
+        },
+        "Appid": {
+            "Description": "Update the Archar Accessment ID",
+            "Type": "String",
+            "MinLength": 3,
+            "MaxLength": 20,
+            "AllowedPattern": "[a-z0-9-]*"
+        },
+        "EC2KeyPairName": {
+            "Description": "EC2 SSH Key Pair Name",
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Default": "BAX-DEV-LOB-WINTEL-GDC-BAXADMIN"
+        },
+        "SSMDocument": {
+            "Description": "AD Domain Join Document",
+            "Type": "AWS::SSM::Parameter::Value<String>",
+            "Default": "/BAX/SSM/DOC/ADJOIN"
+        }
+    },
+    "Conditions": {
+        "CreateDVolume": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "DVolumeSize"
+                        },
+                        "0"
+                    ]
+                }
+            ]
+        }
+    },
+    "Metadata": {
+        "Comment": " List of mandatory tags to set in the stack creation wizard: - Env: Description: The environment this component is being deployed Type: String Default: 'dev' - Appname: Description: The short name for your application Type: String Default: 'swp' - Appid: Description: The unique number assigned to your app during assessment Type: String Default: '237729' - Owner: Description: Email address of Owner or Email Distribution list Type: String Default: 'ECEMEA.SHS.SWP.AWS.Support@baxter.com' - Costcenter: Description: Cost Center Number of your project Type: String Default: '815960632' ",
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {
+                        "default": "Tags Configuration"
+                    },
+                    "Parameters": [
+                        "powerOn",
+                        "powerOff",
+                        "Backup",
+                        "uptimeDays",
+                        "Costcenter",
+                        "Appname",
+                        "Owner",
+                        "Appid",
+                        "Env"
+                    ]
+                },
+                {
+                    "Label": {
+                        "default": "Server Configuration"
+                    },
+                    "Parameters": [
+                        "ServerType",
+                        "ServerTenancy",
+                        "OSVersion",
+                        "ServerName",
+                        "CVolumeSize",
+                        "DVolumeSize",
+                        "KmsKeyId",
+                        "EC2KeyPairName",
+                        "ServerSubnetID",
+                        "SecurityGroupsID",
+                        "InstanceProfile"
+                    ]
+                }
+            ]
+        }
+    },
+    "Resources": {
+        "WindowsTemplate": {
+            "Type": "AWS::EC2::LaunchTemplate",
+            "Properties": {
+                "LaunchTemplateData": {
+                    "ImageId": {
+                        "Ref": "OSVersion"
+                    },
+                    "BlockDeviceMappings": [
+                        {
+                            "DeviceName": "/dev/sda1",
+                            "Ebs": {
+                                "VolumeSize": {
+                                    "Ref": "CVolumeSize"
+                                },
+                                "Encrypted": true,
+                                "KmsKeyId": {
+                                    "Ref": "KmsKeyId"
+                                },
+                                "DeleteOnTermination": {
+                                    "Ref": "CVolumeDeleteOnTermination"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "WindowsInstance": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "LaunchTemplate": {
+                    "LaunchTemplateId": {
+                        "Ref": "WindowsTemplate"
+                    },
+                    "Version": {
+                        "Fn::GetAtt": [
+                            "WindowsTemplate",
+                            "LatestVersionNumber"
+                        ]
+                    }
+                },
+                "SubnetId": {
+                    "Ref": "ServerSubnetID"
+                },
+                "KeyName": {
+                    "Ref": "EC2KeyPairName"
+                },
+                "DisableApiTermination": true,
+                "SecurityGroupIds": {
+                    "Ref": "SecurityGroupsID"
+                },
+                "InstanceType": {
+                    "Ref": "ServerType"
+                },
+                "IamInstanceProfile": {
+                    "Ref": "Instanceprofile"
+                },
+                "Tenancy": {
+                    "Ref": "ServerTenancy"
+                },
+                "Monitoring": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "ServerName"
+                        }
+                    },
+                    {
+                        "Key": "Backup",
+                        "Value": {
+                            "Ref": "Backup"
+                        }
+                    },
+                    {
+                        "Key": "powerOn",
+                        "Value": {
+                            "Ref": "powerOn"
+                        }
+                    },
+                    {
+                        "Key": "powerOff",
+                        "Value": {
+                            "Ref": "powerOff"
+                        }
+                    },
+                    {
+                        "Key": "uptimeDays",
+                        "Value": {
+                            "Ref": "uptimeDays"
+                        }
+                    },
+                    {
+                        "Key": "Costcenter",
+                        "Value": {
+                            "Ref": "Costcenter"
+                        }
+                    },
+                    {
+                        "Key": "Appid",
+                        "Value": {
+                            "Ref": "Appid"
+                        }
+                    },
+                    {
+                        "Key": "Env",
+                        "Value": {
+                            "Ref": "Env"
+                        }
+                    },
+                    {
+                        "Key": "Appname",
+                        "Value": {
+                            "Ref": "Appname"
+                        }
+                    },
+                    {
+                        "Key": "Owner",
+                        "Value": {
+                            "Ref": "Owner"
+                        }
+                    }
+                ]
+            }
+        },
+        "DVolume": {
+            "Type": "AWS::EC2::Volume",
+            "Condition": "CreateDVolume",
+            "Properties": {
+                "Size": {
+                    "Ref": "DVolumeSize"
+                },
+                "AvailabilityZone": {
+                    "Fn::GetAtt": [
+                        "WindowsInstance",
+                        "AvailabilityZone"
+                    ]
+                },
+                "VolumeType": "gp2",
+                "Encrypted": true,
+                "KmsKeyId": {
+                    "Ref": "KmsKeyId"
+                }
+            },
+            "DeletionPolicy": "Snapshot"
+        },
+        "MountPoint": {
+            "Type": "AWS::EC2::VolumeAttachment",
+            "Condition": "CreateDVolume",
+            "Properties": {
+                "InstanceId": {
+                    "Ref": "WindowsInstance"
+                },
+                "VolumeId": {
+                    "Ref": "DVolume"
+                },
+                "Device": "/dev/xvdd"
+            }
+        },
+        "DomainJoinSSMDocumentAssociation": {
+            "Type": "AWS::SSM::Association",
+            "Properties": {
+                "Name": {
+                    "Ref": "SSMDocument"
+                },
+                "Targets": [
+                    {
+                        "Key": "InstanceIds",
+                        "Values": [
+                            {
+                                "Ref": "WindowsInstance"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "EC2InstanceId": {
+            "Description": "Windows Instance ID",
+            "Export": {
+                "Name": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "AWS::StackName"
+                            },
+                            "Instance-ID"
+                        ]
+                    ]
+                }
+            },
+            "Value": {
+                "Ref": "WindowsInstance"
+            }
+        },
+        "EC2InstanceIP": {
+            "Description": "Windows Instance IP",
+            "Export": {
+                "Name": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "AWS::StackName"
+                            },
+                            "Instance-IP"
+                        ]
+                    ]
+                }
+            },
+            "Value": {
+                "Fn::Join": [
+                    "",
+                    [
+                        {
+                            "Fn::GetAtt": [
+                                "WindowsInstance",
+                                "PrivateIp"
+                            ]
+                        }
+                    ]
+                ]
+            }
+        },
+        "StackName": {
+            "Value": {
+                "Ref": "AWS::StackName"
+            }
+        }
+    }
+}
